@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Open-source LLM API (e.g. Groq, Together, Ollama-compatible endpoint)
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
     llm_api_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="LLM_API_BASE_URL")
-    llm_model_name: str = Field(default="llama-3.3-70b-versatile", alias="LLM_MODEL_NAME")
+    llm_model_name: str = Field(default="llama-3.1-8b-instant", alias="LLM_MODEL_NAME")
     llm_temperature: float = Field(default=0.3, alias="LLM_TEMPERATURE")
 
     # App

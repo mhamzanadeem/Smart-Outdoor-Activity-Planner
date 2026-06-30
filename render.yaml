@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: skywise-weather-backend
+    runtime: python
+    plan: free # Free tier: 512 MB RAM, spins down after 15 min inactivity
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "20"
+      - key: LLM_API_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL_NAME
+        value: llama-3.1-8b-instant
+      - key: LLM_TEMPERATURE
+        value: "0.3"
+      # These sensitive keys will be requested in the Render UI during blueprint setup
+      - key: LLM_API_KEY
+        sync: false
+      - key: WEATHER_API_KEY
+        sync: false
+      # Fill this with your Vercel deployment URL (e.g. https://your-app.vercel.app)
+      - key: CORS_ORIGINS
+        sync: false

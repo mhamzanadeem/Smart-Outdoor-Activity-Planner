@@ -29,6 +29,8 @@ class WeatherToolError(Exception):
     """Raised when the weather provider cannot return usable data."""
 
 
+import urllib.parse
+
 def _kmh_from_ms(speed_ms: float) -> float:
     return round(speed_ms * 3.6, 1)
 
@@ -40,13 +42,10 @@ def _fetch_current_weather(city: str) -> dict[str, Any]:
             "WEATHER_API_KEY is not configured. Set it in your .env file."
         )
 
-    url = f"{settings.weather_api_base_url}/weather"
-    params = {
-        "q": city,
-        "appid": settings.weather_api_key,
-        "units": "metric",
-    }
-    response = requests.get(url, params=params, timeout=settings.request_timeout_seconds)
+    encoded_city = urllib.parse.quote(city)
+    # Using the exact URL template format requested
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={encoded_city}&units=metric&appid={settings.weather_api_key}"
+    response = requests.get(url, timeout=settings.request_timeout_seconds)
     if response.status_code == 404:
         raise WeatherToolError(f"City '{city}' was not found by the weather provider.")
     response.raise_for_status()
@@ -57,14 +56,10 @@ def _fetch_rain_probability(city: str) -> float:
     """Estimate rain probability using the next forecast slot (3-hour step)."""
     settings = get_settings()
     try:
-        url = f"{settings.weather_api_base_url}/forecast"
-        params = {
-            "q": city,
-            "appid": settings.weather_api_key,
-            "units": "metric",
-            "cnt": 4,
-        }
-        response = requests.get(url, params=params, timeout=settings.request_timeout_seconds)
+        encoded_city = urllib.parse.quote(city)
+        # Using the exact forecast counterpart URL format
+        url = f"https://api.openweathermap.org/data/2.5/forecast?q={encoded_city}&units=metric&cnt=4&appid={settings.weather_api_key}"
+        response = requests.get(url, timeout=settings.request_timeout_seconds)
         response.raise_for_status()
         data = response.json()
         slots = data.get("list", [])

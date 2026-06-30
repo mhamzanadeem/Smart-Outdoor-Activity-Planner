@@ -87,7 +87,7 @@ def test_weather_tool_node_handles_error(monkeypatch):
     assert result["tool_called"] is True
     assert result["weather_data"] is None
     assert result["tool_executions"][0]["status"] == "error"
-    assert result["error"] == "city not found"
+    assert "Could not find weather data for" in result["error"]
 
 
 def test_reasoning_node(monkeypatch):
