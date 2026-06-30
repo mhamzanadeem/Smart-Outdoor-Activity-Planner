@@ -32,6 +32,22 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session_id = request.session_id or str(uuid.uuid4())
     logger.info("Received chat request session=%s message=%r", session_id, request.message)
 
+    # Fast-fail config check: return a clear error before hitting the LLM
+    settings = get_settings()
+    if not settings.llm_api_key:
+        return ChatResponse(
+            session_id=session_id,
+            user_query=request.message,
+            final_answer="",
+            reasoning="",
+            tool_called=False,
+            error_code="llm_api_key_missing",
+            error_message=(
+                "⚠️ LLM API key is not configured. "
+                "Please set `LLM_API_KEY` in your `backend/.env` file and restart the server."
+            ),
+        )
+
     initial_state = {
         "messages": [HumanMessage(content=request.message)],
         "user_query": request.message,
@@ -59,6 +75,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
         for record in result.get("tool_executions", [])
     ]
 
+    # Pick up error info propagated through the agent state
+    error_code = result.get("error_code")
+    error_message = result.get("error") if error_code else None
+
     return ChatResponse(
         session_id=session_id,
         user_query=request.message,
@@ -69,4 +89,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
         weather_data=weather_data,
         intent=result.get("intent"),
         city=result.get("city"),
+        error_code=error_code,
+        error_message=error_message,
     )

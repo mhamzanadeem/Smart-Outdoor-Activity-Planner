@@ -44,5 +44,6 @@ class AgentState(TypedDict, total=False):
     reasoning: str
     final_answer: str
 
-    # Error tracking
+    # Error tracking — error_code is a machine-readable category for the frontend
     error: str | None
+    error_code: str | None

@@ -48,27 +48,53 @@ export default function App() {
 
       try {
         const data = await sendMessage(text, sessionId);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: uuidv4(),
-            role: "agent",
-            content: data.final_answer,
-            metadata: {
-              tool_called: data.tool_called,
-              tool_executions: data.tool_executions,
-              reasoning: data.reasoning,
-              weather_data: data.weather_data,
-              intent: data.intent,
-              city: data.city,
+
+        // If the backend returned a typed error (API key problem, etc.),
+        // show it as an inline error bubble instead of a raw answer
+        if (data.error_code && data.error_message) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: "error",
+              content: data.error_message,
+              metadata: { error_code: data.error_code },
             },
-          },
-        ]);
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: "agent",
+              content: data.final_answer,
+              metadata: {
+                tool_called: data.tool_called,
+                tool_executions: data.tool_executions,
+                reasoning: data.reasoning,
+                weather_data: data.weather_data,
+                intent: data.intent,
+                city: data.city,
+              },
+            },
+          ]);
+        }
       } catch (err) {
-        const detail =
-          err?.response?.data?.detail ||
-          err?.message ||
-          "Something went wrong. Please try again.";
+        // Network / HTTP errors → floating banner
+        const status = err?.response?.status;
+        let detail;
+        if (!navigator.onLine || err?.code === "ERR_NETWORK") {
+          detail = "🔌 Cannot reach the server. Is the backend running on port 8000?";
+        } else if (status === 422) {
+          detail = "❌ Invalid request sent to the server.";
+        } else if (status >= 500) {
+          detail = "💥 Server error. Check the backend terminal for details.";
+        } else {
+          detail =
+            err?.response?.data?.detail ||
+            err?.message ||
+            "Something went wrong. Please try again.";
+        }
         setError(detail);
       } finally {
         setIsLoading(false);

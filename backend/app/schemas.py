@@ -3,7 +3,7 @@ Pydantic request/response schemas for the public API.
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,15 @@ class ChatResponse(BaseModel):
     weather_data: WeatherData | None = None
     intent: str | None = None
     city: str | None = None
+    # Typed error signalling — set when the agent encounters a known config/API error
+    error_code: Optional[str] = Field(
+        default=None,
+        description="Machine-readable error code, e.g. 'llm_auth_error', 'weather_api_missing'",
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="Human-readable error message to display in the frontend.",
+    )
 
 
 class HealthResponse(BaseModel):
