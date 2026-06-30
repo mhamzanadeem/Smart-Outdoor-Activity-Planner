@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-gray-950 text-gray-100 font-sans antialiased;
+    min-height: 100dvh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+@layer components {
+  .chat-bubble-user {
+    @apply bg-brand-600 text-white rounded-2xl rounded-br-sm px-4 py-3 max-w-[80%] ml-auto shadow-lg;
+  }
+
+  .chat-bubble-agent {
+    @apply bg-gray-800 border border-gray-700 text-gray-100 rounded-2xl rounded-bl-sm px-4 py-3 max-w-[80%] shadow-lg;
+  }
+
+  .tool-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium;
+  }
+
+  .weather-card {
+    @apply bg-gray-900 border border-gray-700 rounded-xl p-4 mt-3;
+  }
+
+  .weather-stat {
+    @apply flex flex-col items-center gap-1 p-3 bg-gray-800 rounded-lg;
+  }
+}
+
+/* Typing dots animation */
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.typing-dot:nth-child(3) { animation-delay: 0s; }
+
+/* Syntax-highlight-like color for JSON code blocks */
+.json-key { @apply text-brand-300; }
+.json-string { @apply text-emerald-400; }
+.json-number { @apply text-amber-400; }
