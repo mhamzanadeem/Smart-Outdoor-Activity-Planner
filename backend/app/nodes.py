@@ -160,10 +160,6 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     activity = parsed.get("activity") or None
 
     user_query_lc = state["user_query"].lower()
-    heuristic_weather = _is_weather_related_query(state["user_query"])
-    if not heuristic_weather:
-        # Hard guard: non-weather queries must not call the weather tool.
-        needs_weather = False
     affirmative_heuristic = bool(
         re.search(r"\b(yes|yep|yeah|correct|confirmed|confirm|right|sure|ok|okay)\b", user_query_lc)
     )
@@ -179,6 +175,21 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     previous_confirmed_city = state.get("confirmed_city")
     previous_confirmed_timeframe = state.get("confirmed_timeframe")
     awaiting_confirmation = bool(state.get("awaiting_confirmation", False))
+
+    # Keep clarification/confirmation context alive for short follow-up replies
+    # like "yes" / "no" so the weather flow does not get dropped mid-turn.
+    has_pending_slot_context = bool(
+        awaiting_confirmation
+        and (state.get("proposed_city") or state.get("proposed_timeframe"))
+    )
+
+    heuristic_weather = _is_weather_related_query(state["user_query"])
+    if not heuristic_weather and not has_pending_slot_context:
+        # Hard guard: unrelated general queries must not call weather tools.
+        needs_weather = False
+    elif has_pending_slot_context:
+        # If user is in confirmation loop, keep weather flow active.
+        needs_weather = True
 
     proposed_city = extracted_city or previous_proposed_city
     proposed_timeframe = extracted_timeframe or previous_proposed_timeframe
