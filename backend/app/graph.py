@@ -10,7 +10,9 @@ Graph topology:
   intent_analysis_step
       |
       v
-   decision_step  --(needs_weather=True)--> fetch_weather --> analyze --> format_response --> END
+    decision_step  --(needs_clarification=True)--> clarify --> format_response --> END
+        |
+        +-----------(needs_weather=True)--------> fetch_weather --> analyze --> format_response --> END
       |
       +-----------(needs_weather=False)---> analyze --> format_response --> END
 """
@@ -22,6 +24,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.nodes import (
+    clarification_node,
     decision_node,
     intent_analysis_node,
     reasoning_node,
@@ -42,6 +45,7 @@ def build_graph():
     # AgentState field names (LangGraph raises ValueError on collision).
     graph.add_node("intent_analysis_step", intent_analysis_node)
     graph.add_node("decision_step", decision_node)
+    graph.add_node("clarify", clarification_node)
     graph.add_node("fetch_weather", weather_tool_node)
     graph.add_node("analyze", reasoning_node)
     graph.add_node("format_response", response_node)
@@ -53,11 +57,13 @@ def build_graph():
         "decision_step",
         route_after_decision,
         {
+            "clarify": "clarify",
             "weather_tool": "fetch_weather",
             "reasoning": "analyze",
         },
     )
 
+    graph.add_edge("clarify", "format_response")
     graph.add_edge("fetch_weather", "analyze")
     graph.add_edge("analyze", "format_response")
     graph.add_edge("format_response", END)

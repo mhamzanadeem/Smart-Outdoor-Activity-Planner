@@ -17,13 +17,18 @@ class FakeAIMessage:
 
 
 def test_route_after_decision_weather_needed():
-    state = {"needs_weather": True}
+    state = {"needs_weather": True, "needs_clarification": False}
     assert nodes.route_after_decision(state) == "weather_tool"
 
 
 def test_route_after_decision_weather_not_needed():
     state = {"needs_weather": False}
     assert nodes.route_after_decision(state) == "reasoning"
+
+
+def test_route_after_decision_clarify():
+    state = {"needs_weather": True, "needs_clarification": True}
+    assert nodes.route_after_decision(state) == "clarify"
 
 
 def test_intent_analysis_node(monkeypatch):
@@ -33,6 +38,7 @@ def test_intent_analysis_node(monkeypatch):
                 "intent": "sports_feasibility",
                 "needs_weather": True,
                 "city": "Lahore",
+                "timeframe": "tomorrow",
                 "activity": "cricket",
             }
         )
@@ -47,7 +53,9 @@ def test_intent_analysis_node(monkeypatch):
     assert result["intent"] == "sports_feasibility"
     assert result["needs_weather"] is True
     assert result["city"] == "Lahore"
+    assert result["timeframe"] == "tomorrow"
     assert result["activity"] == "cricket"
+    assert result["needs_clarification"] is True
 
 
 def test_intent_analysis_node_defaults_on_bad_json(monkeypatch):
@@ -60,23 +68,64 @@ def test_intent_analysis_node_defaults_on_bad_json(monkeypatch):
     result = nodes.intent_analysis_node(state)
 
     assert result["intent"] == "general_weather"
-    assert result["city"] == nodes.DEFAULT_CITY
+    assert result["city"] == ""
+
+
+def test_intent_analysis_confirms_slots_on_yes(monkeypatch):
+    fake_response = FakeAIMessage(
+        json.dumps(
+            {
+                "intent": "general_weather",
+                "needs_weather": True,
+                "city": "",
+                "timeframe": None,
+                "activity": None,
+                "is_confirmation": True,
+                "is_rejection": False,
+            }
+        )
+    )
+    fake_llm = MagicMock()
+    fake_llm.invoke.return_value = fake_response
+    monkeypatch.setattr(nodes, "_get_llm", lambda temperature=None: fake_llm)
+
+    state = {
+        "user_query": "yes",
+        "awaiting_confirmation": True,
+        "proposed_city": "Lahore",
+        "proposed_timeframe": "tomorrow",
+    }
+    result = nodes.intent_analysis_node(state)
+
+    assert result["confirmed_city"] == "Lahore"
+    assert result["confirmed_timeframe"] == "tomorrow"
+    assert result["needs_clarification"] is False
+
+
+def test_clarification_node_prompts_for_confirmation():
+    state = {"proposed_city": "Karachi", "proposed_timeframe": "today"}
+    result = nodes.clarification_node(state)
+
+    assert "Please confirm" in result["final_answer"]
+    assert "Karachi" in result["final_answer"]
+    assert "today" in result["final_answer"]
 
 
 def test_weather_tool_node_success(monkeypatch):
     fake_weather = {"city": "Rawalpindi", "temperature_c": 30.0}
-    monkeypatch.setattr(nodes, "fetch_weather_data", lambda city: fake_weather)
+    monkeypatch.setattr(nodes, "fetch_weather_data", lambda city, timeframe="current": fake_weather)
 
-    state = {"city": "Rawalpindi"}
+    state = {"confirmed_city": "Rawalpindi", "confirmed_timeframe": "tomorrow"}
     result = nodes.weather_tool_node(state)
 
     assert result["tool_called"] is True
     assert result["weather_data"] == fake_weather
     assert result["tool_executions"][0]["status"] == "success"
+    assert result["tool_executions"][0]["input"]["timeframe"] == "tomorrow"
 
 
 def test_weather_tool_node_handles_error(monkeypatch):
-    def raise_error(city):
+    def raise_error(city, timeframe="current"):
         raise nodes.WeatherToolError("city not found")
 
     monkeypatch.setattr(nodes, "fetch_weather_data", raise_error)

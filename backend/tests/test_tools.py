@@ -42,7 +42,7 @@ def test_fetch_weather_data_success(monkeypatch, mock_current_weather_response, 
     monkeypatch.setattr(tools, "_fetch_current_weather", lambda city: mock_current_weather_response)
     monkeypatch.setattr(tools, "_fetch_rain_probability", lambda city: 12.5)
 
-    result = tools.fetch_weather_data("Rawalpindi")
+    result = tools.fetch_weather_data("Rawalpindi", timeframe="current")
 
     assert result["city"] == "Rawalpindi"
     assert result["temperature_c"] == 28.5
@@ -60,13 +60,44 @@ def test_fetch_weather_data_city_not_found(monkeypatch):
     monkeypatch.setattr(tools, "_fetch_current_weather", raise_error)
 
     with pytest.raises(tools.WeatherToolError):
-        tools.fetch_weather_data("NotARealCity12345")
+        tools.fetch_weather_data("NotARealCity12345", timeframe="current")
 
 
 def test_get_weather_tool_invocation(monkeypatch, mock_current_weather_response):
     monkeypatch.setattr(tools, "_fetch_current_weather", lambda city: mock_current_weather_response)
     monkeypatch.setattr(tools, "_fetch_rain_probability", lambda city: 5.0)
 
-    result = tools.get_weather_tool.invoke({"city": "Rawalpindi"})
+    result = tools.get_weather_tool.invoke({"city": "Rawalpindi", "timeframe": "current"})
     assert result["city"] == "Rawalpindi"
     assert result["rain_probability_percent"] == 5.0
+
+
+def test_fetch_weather_data_future_uses_open_meteo(monkeypatch):
+    monkeypatch.setattr(tools, "_fetch_open_meteo_coordinates", lambda city: (33.6, 73.0, "Rawalpindi"))
+    monkeypatch.setattr(
+        tools,
+        "_fetch_open_meteo_daily_forecast",
+        lambda lat, lon: {
+            "daily": {
+                "time": ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04"],
+                "weather_code": [2, 0, 80, 82],
+                "temperature_2m_max": [35.6, 39.5, 41.1, 37.7],
+                "temperature_2m_min": [23.8, 26.8, 26.2, 24.1],
+            }
+        },
+    )
+
+    result = tools.fetch_weather_data("Rawalpindi", timeframe="tomorrow")
+
+    assert result["city"] == "Rawalpindi"
+    assert result["forecast_date"] == "2026-07-02"
+    assert result["weather_code"] == 0
+    assert result["temperature_c"] == 39.5
+    assert result["night_min_c"] == 26.8
+    assert result["condition"] == "Clear sky"
+
+
+def test_open_meteo_description_mapping():
+    assert tools._open_meteo_description(0) == "Clear sky"
+    assert tools._open_meteo_description(82) == "Rain showers (violent)"
+    assert tools._open_meteo_description(999) == "Unknown weather"

@@ -44,6 +44,7 @@ class ChatResponse(BaseModel):
     weather_data: WeatherData | None = None
     intent: str | None = None
     city: str | None = None
+    timeframe: str | None = None
     # Typed error signalling — set when the agent encounters a known config/API error
     error_code: Optional[str] = Field(
         default=None,

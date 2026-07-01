@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Tuple
 
@@ -54,6 +55,7 @@ def _classify_llm_error(exc: Exception) -> Tuple[str, str]:
     return "llm_unavailable", _LLM_ERROR_MESSAGES["llm_unavailable"]
 
 DEFAULT_CITY = "Rawalpindi"
+VALID_TIMEFRAMES = {"current", "today", "tomorrow", "1 day after", "3 days after"}
 
 
 def _get_llm(temperature: float | None = None) -> ChatOpenAI:
@@ -120,22 +122,81 @@ def intent_analysis_node(state: AgentState) -> AgentState:
 
     intent = parsed.get("intent") or "general_weather"
     needs_weather = bool(parsed.get("needs_weather", True))
-    city = (parsed.get("city") or "").strip() or DEFAULT_CITY
+    extracted_city = (parsed.get("city") or "").strip()
+    extracted_timeframe = parsed.get("timeframe")
+    if extracted_timeframe not in VALID_TIMEFRAMES:
+        extracted_timeframe = None
     activity = parsed.get("activity") or None
 
+    user_query_lc = state["user_query"].lower()
+    affirmative_heuristic = bool(
+        re.search(r"\b(yes|yep|yeah|correct|confirmed|confirm|right|sure|ok|okay)\b", user_query_lc)
+    )
+    rejection_heuristic = bool(
+        re.search(r"\b(no|wrong|incorrect|change|not\s+that|different)\b", user_query_lc)
+    )
+
+    is_confirmation = bool(parsed.get("is_confirmation", False) or affirmative_heuristic)
+    is_rejection = bool(parsed.get("is_rejection", False) or rejection_heuristic)
+
+    previous_proposed_city = state.get("proposed_city")
+    previous_proposed_timeframe = state.get("proposed_timeframe")
+    previous_confirmed_city = state.get("confirmed_city")
+    previous_confirmed_timeframe = state.get("confirmed_timeframe")
+    awaiting_confirmation = bool(state.get("awaiting_confirmation", False))
+
+    proposed_city = extracted_city or previous_proposed_city
+    proposed_timeframe = extracted_timeframe or previous_proposed_timeframe
+
+    confirmed_city = previous_confirmed_city
+    confirmed_timeframe = previous_confirmed_timeframe
+
+    if is_rejection:
+        confirmed_city = None
+        confirmed_timeframe = None
+
+    can_confirm_slots = bool(proposed_city and proposed_timeframe)
+    if can_confirm_slots and (
+        (awaiting_confirmation and is_confirmation and not is_rejection)
+        or (is_confirmation and extracted_city and extracted_timeframe and not is_rejection)
+    ):
+        confirmed_city = proposed_city
+        confirmed_timeframe = proposed_timeframe
+
+    if confirmed_city and confirmed_timeframe:
+        city = confirmed_city
+        timeframe = confirmed_timeframe
+        needs_clarification = False
+        awaiting_confirmation = False
+    else:
+        city = proposed_city or ""
+        timeframe = proposed_timeframe
+        needs_clarification = bool(needs_weather)
+        awaiting_confirmation = bool(needs_weather)
+
     logger.info(
-        "[intent_analysis_node] intent=%s needs_weather=%s city=%s activity=%s",
+        "[intent_analysis_node] intent=%s needs_weather=%s city=%s timeframe=%s activity=%s confirmed_city=%s confirmed_timeframe=%s",
         intent,
         needs_weather,
         city,
+        timeframe,
         activity,
+        confirmed_city,
+        confirmed_timeframe,
     )
 
     return {
         "intent": intent,
         "needs_weather": needs_weather,
         "city": city,
+        "timeframe": timeframe,
         "activity": activity,
+        "proposed_city": proposed_city,
+        "proposed_timeframe": proposed_timeframe,
+        "confirmed_city": confirmed_city,
+        "confirmed_timeframe": confirmed_timeframe,
+        "awaiting_confirmation": awaiting_confirmation,
+        "needs_clarification": needs_clarification,
         "tool_called": False,
         "tool_executions": [],
         "error_code": error_code,
@@ -156,7 +217,45 @@ def decision_node(state: AgentState) -> AgentState:
 
 def route_after_decision(state: AgentState) -> str:
     """Conditional routing function used by the StateGraph."""
+    if state.get("needs_clarification", False):
+        return "clarify"
     return "weather_tool" if state.get("needs_weather", True) else "reasoning"
+
+
+def clarification_node(state: AgentState) -> AgentState:
+    """Ask clarifying questions until city and timeframe are explicitly confirmed."""
+    proposed_city = state.get("proposed_city")
+    proposed_timeframe = state.get("proposed_timeframe")
+
+    if not proposed_city and not proposed_timeframe:
+        message = (
+            "Please confirm both details before I fetch weather:\n"
+            "1) Which location (city) do you want?\n"
+            "2) Which timeframe: current, today, tomorrow, 1 day after, or 3 days after?"
+        )
+    elif proposed_city and not proposed_timeframe:
+        message = (
+            f"I have location as '{proposed_city}'. Please confirm the timeframe: "
+            "current, today, tomorrow, 1 day after, or 3 days after."
+        )
+    elif not proposed_city and proposed_timeframe:
+        message = (
+            f"I have timeframe as '{proposed_timeframe}'. Please confirm the location (city)."
+        )
+    else:
+        message = (
+            "Please confirm these details so I can continue:\n"
+            f"Location: {proposed_city}\n"
+            f"Timeframe: {proposed_timeframe}\n"
+            "Reply with 'yes' to confirm, or send corrected values."
+        )
+
+    return {
+        "reasoning": "",
+        "final_answer": message,
+        "tool_called": False,
+        "weather_data": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -164,20 +263,21 @@ def route_after_decision(state: AgentState) -> str:
 # ---------------------------------------------------------------------------
 def weather_tool_node(state: AgentState) -> AgentState:
     """Invoke the weather tool and record the execution for transparency."""
-    city = state.get("city") or DEFAULT_CITY
-    logger.info("[weather_tool_node] fetching weather for city=%s", city)
+    city = state.get("confirmed_city") or state.get("city") or DEFAULT_CITY
+    timeframe = state.get("confirmed_timeframe") or state.get("timeframe") or "current"
+    logger.info("[weather_tool_node] fetching weather for city=%s timeframe=%s", city, timeframe)
 
     start = time.perf_counter()
     execution_record: dict = {
         "tool_name": "get_weather",
-        "input": {"city": city},
+        "input": {"city": city, "timeframe": timeframe},
     }
 
     error_code: str | None = None
     error: str | None = None
 
     try:
-        weather_data = fetch_weather_data(city)
+        weather_data = fetch_weather_data(city, timeframe=timeframe)
         execution_record["output"] = weather_data
         execution_record["status"] = "success"
     except WeatherToolError as exc:
@@ -220,6 +320,8 @@ def weather_tool_node(state: AgentState) -> AgentState:
         "tool_called": True,
         "tool_executions": [execution_record],
         "weather_data": weather_data,
+        "city": city,
+        "timeframe": timeframe,
         "error": error,
         "error_code": error_code,
     }
@@ -243,6 +345,7 @@ User question: {state['user_query']}
 Detected intent: {state.get('intent', 'general_weather')}
 Detected activity: {state.get('activity') or 'none specified'}
 City: {state.get('city', DEFAULT_CITY)}
+Timeframe: {state.get('timeframe') or 'current'}
 
 Weather data:
 {weather_summary}

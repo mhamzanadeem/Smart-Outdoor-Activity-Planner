@@ -92,16 +92,27 @@ Return STRICT JSON only, with this exact schema and nothing else:
 'driving_safety', 'general_weather', 'umbrella_check', 'activity_planning'>",
   "needs_weather": <true or false>,
   "city": "<city name if mentioned, otherwise empty string>",
+  "timeframe": "<one of 'current', 'today', 'tomorrow', '1 day after', '3 days after', or null if not mentioned>",
   "activity": "<the outdoor activity mentioned, e.g. 'cricket', 'hiking', \
-'cycling', or null if none>"
+'cycling', or null if none>",
+  "is_confirmation": <true when the user explicitly confirms with phrases like 'yes', 'confirmed', 'correct'>,
+  "is_rejection": <true when the user rejects/corrects previous assumptions with phrases like 'no', 'wrong', 'change it'>
 }
 
 Rules:
 - needs_weather should be true for almost any question about outdoor
-  activities, clothing, driving, or conditions "today/tomorrow/tonight".
-- If the user does not mention a city, set city to an empty string (the
-  system will use a default).
+  activities, clothing, driving, or conditions.
+- If the user does not mention a city, set city to an empty string (do not guess).
+- Map user timeframes as follows:
+  * "now", "current", "live", "right now" -> "current"
+  * "today", "tonight", "this evening" -> "today"
+  * "tomorrow", "next day", "1 day after today" -> "tomorrow"
+  * "day after tomorrow", "in 2 days", "2 days after today" -> "1 day after"
+  * "in 3 days", "3 days after today", "day after tomorrow's tomorrow" -> "3 days after"
+  * If no timeframe is mentioned or implied, set it to null.
 - Output JSON ONLY. No markdown fences, no commentary.
+- Only set is_confirmation to true for explicit confirmation words; do not infer confirmation implicitly.
+- If user provides a city/timeframe correction, set is_rejection to true.
 """
 
 REASONING_SYSTEM_PROMPT = """You are the Reasoning & Response module of a \

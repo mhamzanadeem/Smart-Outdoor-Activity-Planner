@@ -89,6 +89,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         weather_data=weather_data,
         intent=result.get("intent"),
         city=result.get("city"),
+        timeframe=result.get("timeframe"),
         error_code=error_code,
         error_message=error_message,
     )

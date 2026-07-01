@@ -33,7 +33,16 @@ class AgentState(TypedDict, total=False):
     intent: str
     needs_weather: bool
     city: str
+    timeframe: str | None
     activity: str | None
+
+    # Confirmed slots across turns
+    confirmed_city: str | None
+    confirmed_timeframe: str | None
+    proposed_city: str | None
+    proposed_timeframe: str | None
+    awaiting_confirmation: bool
+    needs_clarification: bool
 
     # Tool execution
     tool_called: bool
