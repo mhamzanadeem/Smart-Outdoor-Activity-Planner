@@ -135,6 +135,40 @@ def test_intent_analysis_yes_keeps_pending_weather_even_if_llm_says_false(monkey
     assert result["needs_clarification"] is False
 
 
+def test_intent_analysis_new_city_overrides_previous_confirmed_city(monkeypatch):
+    fake_response = FakeAIMessage(
+        json.dumps(
+            {
+                "intent": "general_weather",
+                "needs_weather": True,
+                "city": "Hunza",
+                "timeframe": "3 days after",
+                "activity": None,
+                "is_confirmation": False,
+                "is_rejection": False,
+            }
+        )
+    )
+    fake_llm = MagicMock()
+    fake_llm.invoke.return_value = fake_response
+    monkeypatch.setattr(nodes, "_get_llm", lambda temperature=None: fake_llm)
+
+    state = {
+        "user_query": "is weather good in hunza for next 3 days",
+        "confirmed_city": "Hunza Valley",
+        "confirmed_timeframe": "3 days after",
+        "proposed_city": "Hunza Valley",
+        "proposed_timeframe": "3 days after",
+        "awaiting_confirmation": False,
+    }
+    result = nodes.intent_analysis_node(state)
+
+    assert result["confirmed_city"] is None
+    assert result["proposed_city"] == "Hunza"
+    assert result["city"] == "Hunza"
+    assert result["needs_clarification"] is True
+
+
 def test_intent_analysis_non_weather_forces_no_weather(monkeypatch):
     fake_response = FakeAIMessage(
         json.dumps(

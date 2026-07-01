@@ -89,6 +89,10 @@ def _is_weather_related_query(query: str) -> bool:
     return any(keyword in q for keyword in WEATHER_KEYWORDS)
 
 
+def _norm_slot(value: str | None) -> str:
+    return (value or "").strip().casefold()
+
+
 def _get_llm(temperature: float | None = None) -> ChatOpenAI:
     """
     Build an LLM client pointed at an OpenAI-compatible, open-source model
@@ -196,6 +200,21 @@ def intent_analysis_node(state: AgentState) -> AgentState:
 
     confirmed_city = previous_confirmed_city
     confirmed_timeframe = previous_confirmed_timeframe
+
+    # If user explicitly provides updated slots in a new turn, treat this as
+    # a correction and clear stale confirmations so the new values can apply.
+    city_changed = bool(
+        extracted_city and previous_confirmed_city and _norm_slot(extracted_city) != _norm_slot(previous_confirmed_city)
+    )
+    timeframe_changed = bool(
+        extracted_timeframe
+        and previous_confirmed_timeframe
+        and _norm_slot(extracted_timeframe) != _norm_slot(previous_confirmed_timeframe)
+    )
+    if city_changed:
+        confirmed_city = None
+    if timeframe_changed:
+        confirmed_timeframe = None
 
     if is_rejection:
         confirmed_city = None
