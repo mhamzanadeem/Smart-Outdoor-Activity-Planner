@@ -1,6 +1,23 @@
 import { CloudSun, Zap } from "lucide-react";
 
-export default function Header({ onClear }) {
+export default function Header({ onClear, serverStatus }) {
+  const isActive = serverStatus === "active";
+  const isWaking = serverStatus === "waking" || serverStatus === "checking";
+
+  const statusClass = isActive
+    ? "bg-emerald-900/40 border-emerald-800/60 text-emerald-400"
+    : isWaking
+    ? "bg-amber-900/40 border-amber-800/60 text-amber-400"
+    : "bg-red-900/40 border-red-800/60 text-red-400";
+
+  const dotClass = isActive
+    ? "bg-emerald-400 animate-pulse"
+    : isWaking
+    ? "bg-amber-400 animate-pulse"
+    : "bg-red-400";
+
+  const statusText = isActive ? "Server Active" : isWaking ? "Waking Server" : "Server Sleeping";
+
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur-md sticky top-0 z-10">
       <div className="flex items-center gap-2.5">
@@ -17,9 +34,9 @@ export default function Header({ onClear }) {
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-900/40 border border-emerald-800/60 text-emerald-400 text-xs">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Live Weather
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs ${statusClass}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+          {statusText}
         </div>
         <button
           onClick={onClear}

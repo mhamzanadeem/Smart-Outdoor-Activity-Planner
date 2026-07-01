@@ -102,6 +102,32 @@ def test_intent_analysis_confirms_slots_on_yes(monkeypatch):
     assert result["needs_clarification"] is False
 
 
+def test_intent_analysis_non_weather_forces_no_weather(monkeypatch):
+    fake_response = FakeAIMessage(
+        json.dumps(
+            {
+                "intent": "general_information",
+                "needs_weather": True,
+                "city": "Islamabad",
+                "timeframe": "tomorrow",
+                "activity": None,
+            }
+        )
+    )
+    fake_llm = MagicMock()
+    fake_llm.invoke.return_value = fake_response
+    monkeypatch.setattr(nodes, "_get_llm", lambda temperature=None: fake_llm)
+
+    state = {"user_query": "Who is president of Pakistan?"}
+    result = nodes.intent_analysis_node(state)
+
+    assert result["needs_weather"] is False
+    assert result["needs_clarification"] is False
+    assert result["weather_data"] is None
+    assert result["city"] == ""
+    assert result["timeframe"] is None
+
+
 def test_clarification_node_prompts_for_confirmation():
     state = {"proposed_city": "Karachi", "proposed_timeframe": "today"}
     result = nodes.clarification_node(state)
@@ -163,6 +189,23 @@ def test_reasoning_node(monkeypatch):
 
     assert "favorable" in result["reasoning"]
     assert "Yes" in result["final_answer"]
+
+
+def test_reasoning_node_general_query_skips_weather_prompt(monkeypatch):
+    fake_response = FakeAIMessage("As of now, the President of Pakistan is Asif Ali Zardari.")
+    fake_llm = MagicMock()
+    fake_llm.invoke.return_value = fake_response
+    monkeypatch.setattr(nodes, "_get_llm", lambda temperature=None: fake_llm)
+
+    state = {
+        "user_query": "Who is president of Pakistan?",
+        "needs_weather": False,
+        "weather_data": {"city": "Islamabad", "temperature_c": 33},
+    }
+    result = nodes.reasoning_node(state)
+
+    assert "President of Pakistan" in result["final_answer"]
+    assert result["weather_data"] is None
 
 
 def test_response_node():

@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { sendMessage } from "./api";
+import { checkServerHealth, sendMessage, wakeServer } from "./api";
 import Header from "./components/Header";
 import ChatMessage from "./components/ChatMessage";
 import TypingIndicator from "./components/TypingIndicator";
 import SuggestionPills from "./components/SuggestionPills";
 import ChatInput from "./components/ChatInput";
 import ErrorBanner from "./components/ErrorBanner";
-import { CloudSun } from "lucide-react";
+import { CloudSun, Power, RefreshCcw } from "lucide-react";
 
 const SESSION_KEY = "skywise_session_id";
 
@@ -25,18 +25,53 @@ export default function App() {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [serverStatus, setServerStatus] = useState("checking");
+  const [serverMessage, setServerMessage] = useState("Checking backend status...");
   const [sessionId] = useState(getOrCreateSessionId);
   const bottomRef = useRef(null);
+
+  const isServerActive = serverStatus === "active";
 
   // Auto-scroll to bottom on new messages / loading state change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
+  const probeServer = useCallback(async () => {
+    try {
+      await checkServerHealth();
+      setServerStatus("active");
+      setServerMessage("");
+    } catch {
+      setServerStatus("inactive");
+      setServerMessage(
+        "Backend server is inactive (free tier sleep). Click Wake Server to activate it."
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    probeServer();
+  }, [probeServer]);
+
+  const handleWakeServer = useCallback(async () => {
+    setServerStatus("waking");
+    setServerMessage("Waking backend server. This can take up to 50-60 seconds...");
+    try {
+      await wakeServer();
+      setServerStatus("active");
+      setServerMessage("");
+      setError(null);
+    } catch {
+      setServerStatus("inactive");
+      setServerMessage("Server is still sleeping. Please click Wake Server again in a few seconds.");
+    }
+  }, []);
+
   const handleSend = useCallback(
     async (overrideText) => {
       const text = (overrideText ?? inputValue).trim();
-      if (!text || isLoading) return;
+      if (!text || isLoading || !isServerActive) return;
 
       setError(null);
       setInputValue("");
@@ -85,6 +120,10 @@ export default function App() {
         let detail;
         if (!navigator.onLine || err?.code === "ERR_NETWORK") {
           detail = "🔌 Cannot reach the server. Is the backend running on port 8000?";
+          setServerStatus("inactive");
+          setServerMessage(
+            "Backend server appears inactive. Click Wake Server to activate it before chatting."
+          );
         } else if (status === 422) {
           detail = "❌ Invalid request sent to the server.";
         } else if (status >= 500) {
@@ -100,7 +139,7 @@ export default function App() {
         setIsLoading(false);
       }
     },
-    [inputValue, isLoading, sessionId]
+    [inputValue, isLoading, isServerActive, sessionId]
   );
 
   function handleClear() {
@@ -114,11 +153,31 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-gray-950">
-      <Header onClear={handleClear} />
+      <Header onClear={handleClear} serverStatus={serverStatus} />
 
       {/* Messages area */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+          {!isServerActive && (
+            <div className="flex flex-col gap-3 px-4 py-4 rounded-xl border border-amber-800/60 bg-amber-950/40 text-amber-200 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <Power className="w-4 h-4 mt-0.5 text-amber-300" />
+                <p className="text-sm leading-relaxed">
+                  {serverMessage || "Backend server is inactive. Please wake it before chatting."}
+                </p>
+              </div>
+              <div>
+                <button
+                  onClick={handleWakeServer}
+                  disabled={serverStatus === "waking" || serverStatus === "checking"}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-400 text-gray-950 disabled:bg-amber-900/60 disabled:text-amber-200 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RefreshCcw className={`w-4 h-4 ${serverStatus === "waking" ? "animate-spin" : ""}`} />
+                  {serverStatus === "waking" ? "Waking..." : "Wake Server"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Empty / welcome state */}
           {isEmpty && (
@@ -172,7 +231,7 @@ export default function App() {
         value={inputValue}
         onChange={setInputValue}
         onSubmit={() => handleSend()}
-        disabled={isLoading}
+        disabled={isLoading || !isServerActive}
       />
     </div>
   );

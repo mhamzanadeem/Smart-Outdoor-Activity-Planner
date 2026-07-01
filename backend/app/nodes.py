@@ -57,6 +57,37 @@ def _classify_llm_error(exc: Exception) -> Tuple[str, str]:
 DEFAULT_CITY = "Rawalpindi"
 VALID_TIMEFRAMES = {"current", "today", "tomorrow", "1 day after", "3 days after"}
 
+WEATHER_KEYWORDS = {
+    "weather",
+    "temperature",
+    "forecast",
+    "rain",
+    "umbrella",
+    "wind",
+    "humidity",
+    "visibility",
+    "sunny",
+    "cloudy",
+    "storm",
+    "thunder",
+    "snow",
+    "hail",
+    "cricket",
+    "football",
+    "hiking",
+    "cycling",
+    "outdoor",
+    "drive",
+    "driving",
+    "jacket",
+    "clothes",
+}
+
+
+def _is_weather_related_query(query: str) -> bool:
+    q = query.lower()
+    return any(keyword in q for keyword in WEATHER_KEYWORDS)
+
 
 def _get_llm(temperature: float | None = None) -> ChatOpenAI:
     """
@@ -129,6 +160,10 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     activity = parsed.get("activity") or None
 
     user_query_lc = state["user_query"].lower()
+    heuristic_weather = _is_weather_related_query(state["user_query"])
+    if not heuristic_weather:
+        # Hard guard: non-weather queries must not call the weather tool.
+        needs_weather = False
     affirmative_heuristic = bool(
         re.search(r"\b(yes|yep|yeah|correct|confirmed|confirm|right|sure|ok|okay)\b", user_query_lc)
     )
@@ -163,7 +198,12 @@ def intent_analysis_node(state: AgentState) -> AgentState:
         confirmed_city = proposed_city
         confirmed_timeframe = proposed_timeframe
 
-    if confirmed_city and confirmed_timeframe:
+    if not needs_weather:
+        city = ""
+        timeframe = None
+        needs_clarification = False
+        awaiting_confirmation = False
+    elif confirmed_city and confirmed_timeframe:
         city = confirmed_city
         timeframe = confirmed_timeframe
         needs_clarification = False
@@ -199,6 +239,7 @@ def intent_analysis_node(state: AgentState) -> AgentState:
         "needs_clarification": needs_clarification,
         "tool_called": False,
         "tool_executions": [],
+        "weather_data": None,
         "error_code": error_code,
         "error": error,
     }
@@ -334,6 +375,34 @@ def reasoning_node(state: AgentState) -> AgentState:
     """Reason over weather data + intent to produce structured insight."""
     logger.info("[reasoning_node] generating reasoning + answer")
     llm = _get_llm()
+
+    if not state.get("needs_weather", True):
+        generic_messages = [
+            (
+                "system",
+                "You are a helpful assistant. Answer the user's question directly and concisely. "
+                "Do not mention weather unless user asked about weather.",
+            ),
+            ("human", state["user_query"]),
+        ]
+        try:
+            response = llm.invoke(generic_messages)
+            generic_answer = response.content.strip() if isinstance(response.content, str) else str(response.content)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Generic reasoning LLM call failed: %s", exc)
+            error_code, error_msg = _classify_llm_error(exc)
+            return {
+                "reasoning": "",
+                "final_answer": "",
+                "error_code": error_code,
+                "error": error_msg,
+            }
+
+        return {
+            "reasoning": "Answered as a general knowledge query without weather tools.",
+            "final_answer": generic_answer,
+            "weather_data": None,
+        }
 
     weather_data = state.get("weather_data")
     weather_summary = (

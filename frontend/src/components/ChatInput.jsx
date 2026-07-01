@@ -28,7 +28,11 @@ export default function ChatInput({ value, onChange, onSubmit, disabled }) {
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder="Ask about weather, activities, clothing, driving…"
+          placeholder={
+            disabled
+              ? "Server is inactive. Click Wake Server to enable chat."
+              : "Ask about weather, activities, clothing, driving..."
+          }
           rows={1}
           className="w-full resize-none bg-gray-800 border border-gray-700 focus:border-brand-500 focus:ring-1 focus:ring-brand-500/40 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 outline-none transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed leading-relaxed"
         />

@@ -19,4 +19,21 @@ export async function sendMessage(message, sessionId = null) {
   return data;
 }
 
+/**
+ * Quick health probe used for UI availability checks.
+ */
+export async function checkServerHealth() {
+  const { data } = await apiClient.get("/health", { timeout: 4000 });
+  return data;
+}
+
+/**
+ * Wake call for free-tier backends that spin down.
+ * Uses a longer timeout because cold starts can take ~50s.
+ */
+export async function wakeServer() {
+  const { data } = await apiClient.get("/health", { timeout: 70000 });
+  return data;
+}
+
 export default apiClient;

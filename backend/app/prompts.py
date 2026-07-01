@@ -102,6 +102,9 @@ Return STRICT JSON only, with this exact schema and nothing else:
 Rules:
 - needs_weather should be true for almost any question about outdoor
   activities, clothing, driving, or conditions.
+- If the user asks a general knowledge question unrelated to weather
+  (e.g. politics, history, math, programming, biographies), set
+  needs_weather to false.
 - If the user does not mention a city, set city to an empty string (do not guess).
 - Map user timeframes as follows:
   * "now", "current", "live", "right now" -> "current"
