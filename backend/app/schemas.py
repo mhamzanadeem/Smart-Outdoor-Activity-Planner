@@ -42,6 +42,7 @@ class ChatResponse(BaseModel):
     tool_called: bool
     tool_executions: list[ToolExecution] = Field(default_factory=list)
     weather_data: WeatherData | None = None
+    weather_data_list: list[WeatherData] = Field(default_factory=list)
     intent: str | None = None
     city: str | None = None
     timeframe: str | None = None

@@ -63,6 +63,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     weather_payload = result.get("weather_data")
     weather_data = WeatherData(**weather_payload) if weather_payload else None
+    weather_payload_list = result.get("weather_data_list") or []
+    weather_data_list = [WeatherData(**item) for item in weather_payload_list]
 
     tool_executions = [
         ToolExecution(
@@ -87,6 +89,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         tool_called=result.get("tool_called", False),
         tool_executions=tool_executions,
         weather_data=weather_data,
+        weather_data_list=weather_data_list,
         intent=result.get("intent"),
         city=result.get("city"),
         timeframe=result.get("timeframe"),

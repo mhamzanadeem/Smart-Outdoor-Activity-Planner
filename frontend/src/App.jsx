@@ -108,6 +108,7 @@ export default function App() {
                 tool_executions: data.tool_executions,
                 reasoning: data.reasoning,
                 weather_data: data.weather_data,
+                weather_data_list: data.weather_data_list,
                 intent: data.intent,
                 city: data.city,
               },

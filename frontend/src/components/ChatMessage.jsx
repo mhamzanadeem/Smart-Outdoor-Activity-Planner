@@ -77,6 +77,12 @@ export default function ChatMessage({ message }) {
   // Agent message
   const { content, metadata } = message;
   const hasMetadata = metadata && (metadata.tool_called || metadata.reasoning);
+  const weatherItems =
+    metadata?.weather_data_list?.length > 0
+      ? metadata.weather_data_list
+      : metadata?.weather_data
+      ? [metadata.weather_data]
+      : [];
 
   return (
     <div className="flex items-start gap-2 animate-slide-up">
@@ -91,9 +97,9 @@ export default function ChatMessage({ message }) {
           <p className="text-sm leading-relaxed">{formatText(content)}</p>
 
           {/* Weather card inside the bubble */}
-          {metadata?.weather_data && (
-            <WeatherCard data={metadata.weather_data} />
-          )}
+          {weatherItems.map((item, idx) => (
+            <WeatherCard key={`${item.city || "city"}-${idx}`} data={item} />
+          ))}
         </div>
 
         {/* Tool executions + reasoning (below bubble) */}

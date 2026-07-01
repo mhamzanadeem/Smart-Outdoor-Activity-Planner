@@ -33,13 +33,16 @@ class AgentState(TypedDict, total=False):
     intent: str
     needs_weather: bool
     city: str
+    cities: list[str]
     timeframe: str | None
     activity: str | None
 
     # Confirmed slots across turns
     confirmed_city: str | None
+    confirmed_cities: list[str]
     confirmed_timeframe: str | None
     proposed_city: str | None
+    proposed_cities: list[str]
     proposed_timeframe: str | None
     awaiting_confirmation: bool
     needs_clarification: bool
@@ -48,6 +51,7 @@ class AgentState(TypedDict, total=False):
     tool_called: bool
     tool_executions: Annotated[list[ToolExecutionRecord], operator.add]
     weather_data: dict[str, Any] | None
+    weather_data_list: list[dict[str, Any]]
 
     # Reasoning + final structured output
     reasoning: str

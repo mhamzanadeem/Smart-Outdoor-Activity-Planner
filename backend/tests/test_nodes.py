@@ -53,6 +53,7 @@ def test_intent_analysis_node(monkeypatch):
     assert result["intent"] == "sports_feasibility"
     assert result["needs_weather"] is True
     assert result["city"] == "Lahore"
+    assert result["cities"] == ["Lahore"]
     assert result["timeframe"] == "tomorrow"
     assert result["activity"] == "cricket"
     assert result["needs_clarification"] is True
@@ -196,11 +197,16 @@ def test_intent_analysis_non_weather_forces_no_weather(monkeypatch):
 
 
 def test_clarification_node_prompts_for_confirmation():
-    state = {"proposed_city": "Karachi", "proposed_timeframe": "today"}
+    state = {
+        "proposed_city": "Karachi",
+        "proposed_cities": ["Karachi", "Lahore"],
+        "proposed_timeframe": "today",
+    }
     result = nodes.clarification_node(state)
 
     assert "Please confirm" in result["final_answer"]
     assert "Karachi" in result["final_answer"]
+    assert "Lahore" in result["final_answer"]
     assert "today" in result["final_answer"]
 
 
@@ -213,8 +219,30 @@ def test_weather_tool_node_success(monkeypatch):
 
     assert result["tool_called"] is True
     assert result["weather_data"] == fake_weather
+    assert result["weather_data_list"] == [fake_weather]
     assert result["tool_executions"][0]["status"] == "success"
     assert result["tool_executions"][0]["input"]["timeframe"] == "tomorrow"
+
+
+def test_weather_tool_node_multi_city_success(monkeypatch):
+    def fake_fetch(city, timeframe="current"):
+        return {"city": city, "temperature_c": 25.0}
+
+    monkeypatch.setattr(nodes, "fetch_weather_data", fake_fetch)
+
+    state = {
+        "confirmed_cities": ["Islamabad", "Lahore", "Karachi"],
+        "confirmed_timeframe": "tomorrow",
+    }
+    result = nodes.weather_tool_node(state)
+
+    assert result["tool_called"] is True
+    assert len(result["tool_executions"]) == 3
+    assert len(result["weather_data_list"]) == 3
+    assert result["weather_data_list"][0]["city"] == "Islamabad"
+    assert result["weather_data_list"][1]["city"] == "Lahore"
+    assert result["weather_data_list"][2]["city"] == "Karachi"
+    assert result["weather_data"]["city"] == "Islamabad"
 
 
 def test_weather_tool_node_handles_error(monkeypatch):

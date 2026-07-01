@@ -92,6 +92,7 @@ Return STRICT JSON only, with this exact schema and nothing else:
 'driving_safety', 'general_weather', 'umbrella_check', 'activity_planning'>",
   "needs_weather": <true or false>,
   "city": "<city name if mentioned, otherwise empty string>",
+  "cities": ["<up to 3 city names if user asked for multiple locations, else []>"],
   "timeframe": "<one of 'current', 'today', 'tomorrow', '1 day after', '3 days after', or null if not mentioned>",
   "activity": "<the outdoor activity mentioned, e.g. 'cricket', 'hiking', \
 'cycling', or null if none>",
@@ -106,6 +107,8 @@ Rules:
   (e.g. politics, history, math, programming, biographies), set
   needs_weather to false.
 - If the user does not mention a city, set city to an empty string (do not guess).
+- If user asks for weather in multiple locations, fill cities with up to 3 city names in request order.
+- If exactly one city is present, set both city and cities (single-item list).
 - Map user timeframes as follows:
   * "now", "current", "live", "right now" -> "current"
   * "today", "tonight", "this evening" -> "today"

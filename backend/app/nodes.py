@@ -93,6 +93,25 @@ def _norm_slot(value: str | None) -> str:
     return (value or "").strip().casefold()
 
 
+def _normalize_city_list(raw_cities: object) -> list[str]:
+    if not isinstance(raw_cities, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in raw_cities:
+        if not isinstance(value, str):
+            continue
+        city = value.strip()
+        if not city:
+            continue
+        key = city.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(city)
+    return cleaned[:3]
+
+
 def _get_llm(temperature: float | None = None) -> ChatOpenAI:
     """
     Build an LLM client pointed at an OpenAI-compatible, open-source model
@@ -158,6 +177,11 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     intent = parsed.get("intent") or "general_weather"
     needs_weather = bool(parsed.get("needs_weather", True))
     extracted_city = (parsed.get("city") or "").strip()
+    extracted_cities = _normalize_city_list(parsed.get("cities"))
+    if extracted_city and extracted_city.casefold() not in {c.casefold() for c in extracted_cities}:
+        extracted_cities = [extracted_city, *extracted_cities][:3]
+    if not extracted_city and extracted_cities:
+        extracted_city = extracted_cities[0]
     extracted_timeframe = parsed.get("timeframe")
     if extracted_timeframe not in VALID_TIMEFRAMES:
         extracted_timeframe = None
@@ -175,8 +199,10 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     is_rejection = bool(parsed.get("is_rejection", False) or rejection_heuristic)
 
     previous_proposed_city = state.get("proposed_city")
+    previous_proposed_cities = state.get("proposed_cities") or []
     previous_proposed_timeframe = state.get("proposed_timeframe")
     previous_confirmed_city = state.get("confirmed_city")
+    previous_confirmed_cities = state.get("confirmed_cities") or []
     previous_confirmed_timeframe = state.get("confirmed_timeframe")
     awaiting_confirmation = bool(state.get("awaiting_confirmation", False))
 
@@ -184,7 +210,7 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     # like "yes" / "no" so the weather flow does not get dropped mid-turn.
     has_pending_slot_context = bool(
         awaiting_confirmation
-        and (state.get("proposed_city") or state.get("proposed_timeframe"))
+        and (state.get("proposed_city") or (state.get("proposed_cities") or []) or state.get("proposed_timeframe"))
     )
 
     heuristic_weather = _is_weather_related_query(state["user_query"])
@@ -195,10 +221,14 @@ def intent_analysis_node(state: AgentState) -> AgentState:
         # If user is in confirmation loop, keep weather flow active.
         needs_weather = True
 
-    proposed_city = extracted_city or previous_proposed_city
+    proposed_cities = extracted_cities or previous_proposed_cities
+    proposed_city = extracted_city or previous_proposed_city or (proposed_cities[0] if proposed_cities else "")
     proposed_timeframe = extracted_timeframe or previous_proposed_timeframe
+    if proposed_city and not proposed_cities:
+        proposed_cities = [proposed_city]
 
     confirmed_city = previous_confirmed_city
+    confirmed_cities = previous_confirmed_cities
     confirmed_timeframe = previous_confirmed_timeframe
 
     # If user explicitly provides updated slots in a new turn, treat this as
@@ -213,33 +243,47 @@ def intent_analysis_node(state: AgentState) -> AgentState:
     )
     if city_changed:
         confirmed_city = None
+        confirmed_cities = []
     if timeframe_changed:
         confirmed_timeframe = None
 
+    if extracted_cities and previous_confirmed_cities:
+        previous_set = {_norm_slot(c) for c in previous_confirmed_cities}
+        extracted_set = {_norm_slot(c) for c in extracted_cities}
+        if extracted_set != previous_set:
+            confirmed_city = None
+            confirmed_cities = []
+
     if is_rejection:
         confirmed_city = None
+        confirmed_cities = []
         confirmed_timeframe = None
 
-    can_confirm_slots = bool(proposed_city and proposed_timeframe)
+    active_cities = proposed_cities or ([proposed_city] if proposed_city else [])
+    can_confirm_slots = bool(active_cities and proposed_timeframe)
     if can_confirm_slots and (
         (awaiting_confirmation and is_confirmation and not is_rejection)
-        or (is_confirmation and extracted_city and extracted_timeframe and not is_rejection)
+        or (is_confirmation and (extracted_city or extracted_cities) and extracted_timeframe and not is_rejection)
     ):
-        confirmed_city = proposed_city
+        confirmed_city = active_cities[0]
+        confirmed_cities = active_cities
         confirmed_timeframe = proposed_timeframe
 
     if not needs_weather:
         city = ""
+        cities = []
         timeframe = None
         needs_clarification = False
         awaiting_confirmation = False
-    elif confirmed_city and confirmed_timeframe:
+    elif confirmed_city and confirmed_timeframe and confirmed_cities:
         city = confirmed_city
+        cities = confirmed_cities
         timeframe = confirmed_timeframe
         needs_clarification = False
         awaiting_confirmation = False
     else:
         city = proposed_city or ""
+        cities = active_cities
         timeframe = proposed_timeframe
         needs_clarification = bool(needs_weather)
         awaiting_confirmation = bool(needs_weather)
@@ -259,17 +303,21 @@ def intent_analysis_node(state: AgentState) -> AgentState:
         "intent": intent,
         "needs_weather": needs_weather,
         "city": city,
+        "cities": cities,
         "timeframe": timeframe,
         "activity": activity,
         "proposed_city": proposed_city,
+        "proposed_cities": active_cities,
         "proposed_timeframe": proposed_timeframe,
         "confirmed_city": confirmed_city,
+        "confirmed_cities": confirmed_cities,
         "confirmed_timeframe": confirmed_timeframe,
         "awaiting_confirmation": awaiting_confirmation,
         "needs_clarification": needs_clarification,
         "tool_called": False,
         "tool_executions": [],
         "weather_data": None,
+        "weather_data_list": [],
         "error_code": error_code,
         "error": error,
     }
@@ -295,28 +343,30 @@ def route_after_decision(state: AgentState) -> str:
 
 def clarification_node(state: AgentState) -> AgentState:
     """Ask clarifying questions until city and timeframe are explicitly confirmed."""
-    proposed_city = state.get("proposed_city")
+    proposed_cities = state.get("proposed_cities") or []
+    proposed_city = state.get("proposed_city") or (proposed_cities[0] if proposed_cities else None)
     proposed_timeframe = state.get("proposed_timeframe")
+    locations_text = ", ".join(proposed_cities) if proposed_cities else (proposed_city or "")
 
-    if not proposed_city and not proposed_timeframe:
+    if not proposed_cities and not proposed_timeframe:
         message = (
             "Please confirm both details before I fetch weather:\n"
-            "1) Which location (city) do you want?\n"
+            "1) Which location(s) (up to 3 cities) do you want?\n"
             "2) Which timeframe: current, today, tomorrow, 1 day after, or 3 days after?"
         )
-    elif proposed_city and not proposed_timeframe:
+    elif proposed_cities and not proposed_timeframe:
         message = (
-            f"I have location as '{proposed_city}'. Please confirm the timeframe: "
+            f"I have location(s) as '{locations_text}'. Please confirm the timeframe: "
             "current, today, tomorrow, 1 day after, or 3 days after."
         )
-    elif not proposed_city and proposed_timeframe:
+    elif not proposed_cities and proposed_timeframe:
         message = (
-            f"I have timeframe as '{proposed_timeframe}'. Please confirm the location (city)."
+            f"I have timeframe as '{proposed_timeframe}'. Please confirm location(s) (up to 3 cities)."
         )
     else:
         message = (
             "Please confirm these details so I can continue:\n"
-            f"Location: {proposed_city}\n"
+            f"Location(s): {locations_text}\n"
             f"Timeframe: {proposed_timeframe}\n"
             "Reply with 'yes' to confirm, or send corrected values."
         )
@@ -334,64 +384,94 @@ def clarification_node(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 def weather_tool_node(state: AgentState) -> AgentState:
     """Invoke the weather tool and record the execution for transparency."""
-    city = state.get("confirmed_city") or state.get("city") or DEFAULT_CITY
-    timeframe = state.get("confirmed_timeframe") or state.get("timeframe") or "current"
-    logger.info("[weather_tool_node] fetching weather for city=%s timeframe=%s", city, timeframe)
+    cities = state.get("confirmed_cities") or state.get("cities") or []
+    if not cities:
+        fallback_city = state.get("confirmed_city") or state.get("city") or DEFAULT_CITY
+        cities = [fallback_city]
 
-    start = time.perf_counter()
-    execution_record: dict = {
-        "tool_name": "get_weather",
-        "input": {"city": city, "timeframe": timeframe},
-    }
+    deduped_cities: list[str] = []
+    seen: set[str] = set()
+    for city_name in cities:
+        key = city_name.strip().casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped_cities.append(city_name.strip())
+    cities = deduped_cities[:3]
+
+    city = cities[0]
+    timeframe = state.get("confirmed_timeframe") or state.get("timeframe") or "current"
+    logger.info("[weather_tool_node] fetching weather for cities=%s timeframe=%s", cities, timeframe)
+
+    execution_records: list[dict] = []
+    weather_data_list: list[dict] = []
 
     error_code: str | None = None
     error: str | None = None
 
-    try:
-        weather_data = fetch_weather_data(city, timeframe=timeframe)
-        execution_record["output"] = weather_data
-        execution_record["status"] = "success"
-    except WeatherToolError as exc:
-        logger.warning("[weather_tool_node] weather tool error: %s", exc)
-        weather_data = None
-        execution_record["output"] = {"error": str(exc)}
-        execution_record["status"] = "error"
-        err_str = str(exc).lower()
-        if "not configured" in err_str or "weather_api_key" in err_str:
-            error_code = "weather_api_missing"
-            error = (
-                "⚠️ Weather API key is missing. "
-                "Please set `WEATHER_API_KEY` in your `backend/.env` file "
-                "and restart the server."
-            )
-        elif "not found" in err_str:
-            error_code = "weather_city_not_found"
-            error = f"🔍 Could not find weather data for '{city}'. Try a different city name."
-        else:
-            error_code = "weather_fetch_error"
-            error = f"🌐 Weather data unavailable: {exc}"
-    except _requests.exceptions.ConnectionError:
-        logger.exception("[weather_tool_node] network error fetching weather")
-        weather_data = None
-        execution_record["output"] = {"error": "Network error."}
-        execution_record["status"] = "error"
-        error_code = "weather_network_error"
-        error = "🌐 Could not reach the weather provider. Check your internet connection."
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("[weather_tool_node] unexpected error: %s", exc)
-        weather_data = None
-        execution_record["output"] = {"error": "Unexpected error fetching weather data."}
-        execution_record["status"] = "error"
-        error_code = "weather_fetch_error"
-        error = "🌐 An unexpected error occurred fetching weather data. Please try again."
+    for each_city in cities:
+        start = time.perf_counter()
+        execution_record: dict = {
+            "tool_name": "get_weather",
+            "input": {"city": each_city, "timeframe": timeframe},
+        }
 
-    execution_record["duration_ms"] = round((time.perf_counter() - start) * 1000, 1)
+        try:
+            weather_data = fetch_weather_data(each_city, timeframe=timeframe)
+            weather_data_list.append(weather_data)
+            execution_record["output"] = weather_data
+            execution_record["status"] = "success"
+        except WeatherToolError as exc:
+            logger.warning("[weather_tool_node] weather tool error for city=%s: %s", each_city, exc)
+            execution_record["output"] = {"error": str(exc)}
+            execution_record["status"] = "error"
+            if not error_code:
+                err_str = str(exc).lower()
+                if "not configured" in err_str or "weather_api_key" in err_str:
+                    error_code = "weather_api_missing"
+                    error = (
+                        "⚠️ Weather API key is missing. "
+                        "Please set `WEATHER_API_KEY` in your `backend/.env` file "
+                        "and restart the server."
+                    )
+                elif "not found" in err_str:
+                    error_code = "weather_city_not_found"
+                    error = f"🔍 Could not find weather data for '{each_city}'. Try a different city name."
+                else:
+                    error_code = "weather_fetch_error"
+                    error = f"🌐 Weather data unavailable: {exc}"
+        except _requests.exceptions.ConnectionError:
+            logger.exception("[weather_tool_node] network error fetching weather for city=%s", each_city)
+            execution_record["output"] = {"error": "Network error."}
+            execution_record["status"] = "error"
+            if not error_code:
+                error_code = "weather_network_error"
+                error = "🌐 Could not reach the weather provider. Check your internet connection."
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[weather_tool_node] unexpected error for city=%s: %s", each_city, exc)
+            execution_record["output"] = {"error": "Unexpected error fetching weather data."}
+            execution_record["status"] = "error"
+            if not error_code:
+                error_code = "weather_fetch_error"
+                error = "🌐 An unexpected error occurred fetching weather data. Please try again."
+
+        execution_record["duration_ms"] = round((time.perf_counter() - start) * 1000, 1)
+        execution_records.append(execution_record)
+
+    if weather_data_list:
+        error_code = None
+        error = None
+        primary_weather = weather_data_list[0]
+    else:
+        primary_weather = None
 
     return {
         "tool_called": True,
-        "tool_executions": [execution_record],
-        "weather_data": weather_data,
+        "tool_executions": execution_records,
+        "weather_data": primary_weather,
+        "weather_data_list": weather_data_list,
         "city": city,
+        "cities": cities,
         "timeframe": timeframe,
         "error": error,
         "error_code": error_code,
@@ -432,18 +512,25 @@ def reasoning_node(state: AgentState) -> AgentState:
             "reasoning": "Answered as a general knowledge query without weather tools.",
             "final_answer": generic_answer,
             "weather_data": None,
+            "weather_data_list": [],
         }
 
+    weather_data_list = state.get("weather_data_list") or []
     weather_data = state.get("weather_data")
+    weather_payload_for_reasoning: object = weather_data_list if weather_data_list else weather_data
     weather_summary = (
-        json.dumps(weather_data, indent=2) if weather_data else "No weather data available."
+        json.dumps(weather_payload_for_reasoning, indent=2)
+        if weather_payload_for_reasoning
+        else "No weather data available."
     )
+
+    city_text = ", ".join(state.get("cities") or []) or state.get("city", DEFAULT_CITY)
 
     user_prompt = f"""
 User question: {state['user_query']}
 Detected intent: {state.get('intent', 'general_weather')}
 Detected activity: {state.get('activity') or 'none specified'}
-City: {state.get('city', DEFAULT_CITY)}
+City/Cities: {city_text}
 Timeframe: {state.get('timeframe') or 'current'}
 
 Weather data:
